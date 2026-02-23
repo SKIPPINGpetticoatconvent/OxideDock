@@ -112,14 +112,6 @@ pub fn run() {
             // Dynamic window positioning: snap to bottom of screen
             let main_window = app.get_webview_window("main").unwrap();
 
-            // Apply system-level Acrylic blur (like MyDockFinder)
-            #[cfg(target_os = "windows")]
-            {
-                use window_vibrancy::apply_acrylic;
-                let _ = apply_acrylic(&main_window, Some((20, 20, 20, 40)));
-                println!("Applied Windows Acrylic blur effect");
-            }
-
             if let Some(monitor) = main_window.current_monitor().ok().flatten() {
                 let screen = monitor.size();
                 let scale = monitor.scale_factor();
