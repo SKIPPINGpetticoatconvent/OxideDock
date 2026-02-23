@@ -1,0 +1,26 @@
+{
+  "categories": [
+    {
+      "name": "Dev",
+      "shortcuts": [
+        {
+          "name": "VS Code",
+          "path": "C:\\Program Files\\Microsoft VS Code\\Code.exe"
+        },
+        {
+          "name": "Terminal",
+          "path": "wt.exe"
+        }
+      ]
+    },
+    {
+      "name": "Tools",
+      "shortcuts": [
+        {
+          "name": "Notepad",
+          "path": "notepad.exe"
+        }
+      ]
+    }
+  ]
+}
