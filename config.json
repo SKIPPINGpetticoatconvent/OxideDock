@@ -1,28 +1,40 @@
 {
   "categories": [
     {
-      "name": "Dev",
+      "name": "System",
+      "shortcuts": [
+        {
+          "name": "Explorer",
+          "path": "C:\\Windows\\explorer.exe"
+        },
+        {
+          "name": "Notepad",
+          "path": "C:\\Windows\\System32\\notepad.exe"
+        },
+        {
+          "name": "Calculator",
+          "path": "C:\\Windows\\System32\\calc.exe"
+        },
+        {
+          "name": "CMD",
+          "path": "C:\\Windows\\System32\\cmd.exe"
+        },
+        {
+          "name": "Paint",
+          "path": "C:\\Windows\\System32\\mspaint.exe"
+        }
+      ]
+    },
+    {
+      "name": "Apps",
       "shortcuts": [
         {
           "name": "VS Code",
           "path": "C:\\Program Files\\Microsoft VS Code\\Code.exe"
         },
         {
-          "name": "Terminal",
-          "path": "wt.exe"
-        }
-      ]
-    },
-    {
-      "name": "Tools",
-      "shortcuts": [
-        {
-          "name": "Notepad",
-          "path": "notepad.exe"
-        },
-        {
-          "name": "Dock Settings",
-          "path": "settings"
+          "name": "Edge",
+          "path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
         }
       ]
     }

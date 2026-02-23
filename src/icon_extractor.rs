@@ -1,63 +1,16 @@
-use windows::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES;
-use windows::Win32::UI::Controls::IImageList;
-use windows::Win32::UI::Shell::{
-    SHFILEINFOW, SHGFI_SYSICONINDEX, SHGetFileInfoW, SHGetImageList, SHIL_JUMBO,
-};
-use windows::Win32::UI::WindowsAndMessaging::{CopyIcon, DestroyIcon, HICON};
-use windows::core::{HSTRING, PCWSTR};
+use image::RgbaImage;
 
-#[derive(Debug)]
-pub struct SystemIcon {
-    pub hicon: HICON,
-}
-
-impl Clone for SystemIcon {
-    fn clone(&self) -> Self {
-        unsafe {
-            // CopyIcon returns Result<HICON> in recent windows-rs
-            let hicon = CopyIcon(self.hicon).unwrap_or(HICON::default());
-            SystemIcon { hicon }
+/// Extract icon from a file path as an RgbaImage.
+/// Uses the windows-icons crate for reliable icon extraction.
+pub fn extract_icon(path: &str) -> Option<RgbaImage> {
+    match windows_icons::get_icon_by_path(path) {
+        Ok(icon) => {
+            println!("  Icon OK: '{}' ({}x{})", path, icon.width(), icon.height());
+            Some(icon)
         }
-    }
-}
-
-impl Drop for SystemIcon {
-    fn drop(&mut self) {
-        if !self.hicon.is_invalid() {
-            unsafe {
-                let _ = DestroyIcon(self.hicon);
-            }
-        }
-    }
-}
-
-pub fn extract_icon(path: &str) -> Option<SystemIcon> {
-    unsafe {
-        let mut shfi = SHFILEINFOW::default();
-        let path_hstring = HSTRING::from(path);
-
-        let result = SHGetFileInfoW(
-            PCWSTR(path_hstring.as_ptr()),
-            FILE_FLAGS_AND_ATTRIBUTES(0),
-            Some(&mut shfi),
-            std::mem::size_of::<SHFILEINFOW>() as u32,
-            SHGFI_SYSICONINDEX,
-        );
-
-        if result == 0 {
-            return None;
-        }
-
-        let i_icon = shfi.iIcon;
-
-        match SHGetImageList::<IImageList>(SHIL_JUMBO as i32) {
-            Ok(list) => {
-                if let Ok(hicon) = list.GetIcon(i_icon, 0u32) {
-                    return Some(SystemIcon { hicon });
-                }
-                None
-            }
-            Err(_) => None,
+        Err(e) => {
+            println!("  Icon FAIL: '{}' -> {}", path, e);
+            None
         }
     }
 }
