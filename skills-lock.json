@@ -26,6 +26,11 @@
       "sourceType": "github",
       "computedHash": "5f29c561b4c7434737502bcd3886d93b3890b667c01d0334b68f03ab9e282501"
     },
+    "rust-skills": {
+      "source": "leonardomso/rust-skills",
+      "sourceType": "github",
+      "computedHash": "d099b313fcb795ef568b0856d34a8bcfc16864b8ae5bb3729f038c97893e0132"
+    },
     "search-code": {
       "source": "JamieMason/syncpack",
       "sourceType": "github",
