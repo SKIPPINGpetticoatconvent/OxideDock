@@ -14,12 +14,27 @@ use windows::core::w;
 
 pub struct AppState {
     pub config: config::Config,
+    pub is_hidden: bool,
 }
 
 #[tauri::command]
 fn get_config(state: State<'_, Mutex<AppState>>) -> Result<serde_json::Value, String> {
     let state = state.lock().map_err(|e| e.to_string())?;
     serde_json::to_value(&state.config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_dock_hidden(
+    window: tauri::WebviewWindow,
+    state: State<'_, Mutex<AppState>>,
+    hidden: bool,
+) -> Result<(), String> {
+    {
+        let mut state = state.lock().map_err(|e| e.to_string())?;
+        state.is_hidden = hidden;
+    }
+    update_dock_position(&window, &state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -49,6 +64,54 @@ fn launch_app(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_running_apps() -> Result<Vec<String>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::ProcessStatus::EnumProcesses;
+        use windows::Win32::System::Threading::{
+            OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+            QueryFullProcessImageNameW,
+        };
+
+        let mut pids = [0u32; 1024];
+        let mut cb_needed = 0u32;
+        unsafe {
+            if EnumProcesses(pids.as_mut_ptr(), (pids.len() as u32) * 4, &mut cb_needed).is_ok() {
+                let count = (cb_needed / 4) as usize;
+                let mut paths = std::collections::HashSet::new();
+
+                for i in 0..count {
+                    let pid = pids[i];
+                    if pid == 0 {
+                        continue;
+                    }
+
+                    if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                        let mut buffer = [0u16; 1024];
+                        let mut size = buffer.len() as u32;
+                        if QueryFullProcessImageNameW(
+                            handle,
+                            PROCESS_NAME_WIN32,
+                            windows::core::PWSTR(buffer.as_mut_ptr()),
+                            &mut size,
+                        )
+                        .is_ok()
+                        {
+                            let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                            paths.insert(path.to_lowercase());
+                        }
+                        let _ = CloseHandle(handle);
+                    }
+                }
+                return Ok(paths.into_iter().collect());
+            }
+        }
+    }
+    Ok(vec![])
+}
+
 fn hide_taskbar() {
     unsafe {
         let taskbar_hwnd = FindWindowW(w!("Shell_TrayWnd"), None);
@@ -69,7 +132,9 @@ fn show_taskbar() {
 
 // ─── Positioning and AppBar logic ───
 
-fn update_dock_position(window: &tauri::WebviewWindow) {
+fn update_dock_position(window: &tauri::WebviewWindow, state_mutex: &Mutex<AppState>) {
+    let is_hidden = state_mutex.lock().map(|s| s.is_hidden).unwrap_or(false);
+
     if let Some(monitor) = window.current_monitor().ok().flatten() {
         let screen_size = monitor.size();
         let scale = monitor.scale_factor();
@@ -78,7 +143,13 @@ fn update_dock_position(window: &tauri::WebviewWindow) {
         let logical_dock_height = 82; // Optimized Height
         let phys_dock_h = (logical_dock_height as f64 * scale).round() as i32;
 
-        let phys_bottom_y = monitor_pos.y + screen_size.height as i32 - phys_dock_h;
+        let phys_bottom_y = if is_hidden {
+            // Hidden: Only 4 pixels visible
+            monitor_pos.y + screen_size.height as i32 - 4
+        } else {
+            monitor_pos.y + screen_size.height as i32 - phys_dock_h
+        };
+
         let phys_left_x = monitor_pos.x;
 
         // Apply window size and position (Physical)
@@ -88,23 +159,20 @@ fn update_dock_position(window: &tauri::WebviewWindow) {
         ));
         let _ = window.set_position(tauri::PhysicalPosition::new(phys_left_x, phys_bottom_y));
 
-        println!(
-            "Auto-Adaptive Update: {}x{} at {},{} (Scale: {})",
-            screen_size.width, phys_dock_h, phys_left_x, phys_bottom_y, scale
-        );
-
         #[cfg(target_os = "windows")]
         {
-            use tauri::Manager;
             if let Ok(hwnd_raw) = window.hwnd() {
                 let hwnd = HWND(hwnd_raw.0 as isize);
                 unregister_appbar(hwnd); // Clear previous area
-                register_appbar(
-                    hwnd,
-                    phys_dock_h,
-                    screen_size.width as i32,
-                    screen_size.height as i32,
-                );
+
+                if !is_hidden {
+                    register_appbar(
+                        hwnd,
+                        phys_dock_h,
+                        screen_size.width as i32,
+                        screen_size.height as i32,
+                    );
+                }
             }
         }
     }
@@ -189,28 +257,35 @@ pub fn run() {
     println!("Config loaded: {} categories", config.categories.len());
 
     tauri::Builder::default()
-        .manage(Mutex::new(AppState { config }))
+        .manage(Mutex::new(AppState {
+            config,
+            is_hidden: false,
+        }))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_config,
             get_icon_base64,
-            launch_app
+            launch_app,
+            get_running_apps,
+            set_dock_hidden
         ])
         .setup(|app| {
             hide_taskbar();
 
             let main_window = app.get_webview_window("main").unwrap();
+            let state = app.state::<Mutex<AppState>>();
 
             // Initial positioning
-            update_dock_position(&main_window);
+            update_dock_position(&main_window, &state);
 
             // Listen for changes to handle resolution/scaling automatically
             let window_ref = main_window.clone();
+            let state_ref = state.inner().clone();
             main_window.on_window_event(move |event| match event {
                 WindowEvent::ScaleFactorChanged { .. }
                 | WindowEvent::Moved { .. }
                 | WindowEvent::Resized(..) => {
-                    update_dock_position(&window_ref);
+                    update_dock_position(&window_ref, state_ref);
                 }
                 WindowEvent::Destroyed => {
                     #[cfg(target_os = "windows")]

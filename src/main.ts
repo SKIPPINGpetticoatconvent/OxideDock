@@ -19,7 +19,9 @@ interface Config {
 }
 
 // ─── Magnification parameters (macOS-faithful) ───
-const BASE_SIZE = 64;         // Icon base size in px
+let currentBaseSize = 64;     // Dynamic base size
+const MAX_BASE_SIZE = 64;     // Maximum icon size
+const MIN_BASE_SIZE = 24;     // Minimum icon size before overflow
 const MAX_SCALE = 1.65;       // Maximum magnification
 const MAGNIFY_RANGE = 200;    // Pixels of influence from cursor
 const LERP_SPEED = 0.18;      // Smooth interpolation factor
@@ -30,9 +32,26 @@ let dockBarEl: HTMLElement | null = null;
 let dockItems: HTMLElement[] = [];
 let mouseX = -9999;
 let isHovering = false;
+let animFrameId: number | null = null;
 let currentScales: number[] = [];
 let targetScales: number[] = [];
-let animFrameId: number | null = null;
+let isAutoHideEnabled = true;
+let isHidden = false;
+let hideDelayTimer: number | null = null;
+
+function calculateBaseSize(itemCount: number) {
+  const horizontalPadding = 40; // dock-bar total horizontal padding/margins
+  const gap = 6;
+  const availableWidth = window.innerWidth - horizontalPadding;
+
+  const totalGaps = Math.max(0, (itemCount - 1) * gap);
+  let size = (availableWidth - totalGaps) / itemCount;
+
+  size = Math.min(MAX_BASE_SIZE, Math.max(MIN_BASE_SIZE, size));
+  currentBaseSize = size;
+
+  document.documentElement.style.setProperty('--dock-icon-size', `${size}px`);
+}
 
 // ═══ Gaussian magnification (like macOS) ═══
 function gaussian(dist: number): number {
@@ -75,7 +94,7 @@ function applyScales() {
 
     const s = currentScales[i];
     const item = dockItems[i];
-    const newSize = BASE_SIZE * s;
+    const newSize = currentBaseSize * s;
 
     item.style.width = `${newSize}px`;
     item.style.height = `${newSize}px`;
@@ -109,6 +128,10 @@ async function bootstrap() {
   try {
     const config: Config = await invoke("get_config");
     let isFirstCategory = true;
+    let totalItems = 0;
+    config.categories.forEach(c => totalItems += c.shortcuts.length);
+
+    calculateBaseSize(totalItems);
 
     for (const category of config.categories) {
       // Add separator between categories
@@ -123,8 +146,9 @@ async function bootstrap() {
         const itemEl = document.createElement("div");
         itemEl.className = "dock-item";
         itemEl.setAttribute("data-name", shortcut.name);
-        itemEl.style.width = `${BASE_SIZE}px`;
-        itemEl.style.height = `${BASE_SIZE}px`;
+        itemEl.setAttribute("data-path", shortcut.path);
+        itemEl.style.width = `${currentBaseSize}px`;
+        itemEl.style.height = `${currentBaseSize}px`;
 
         // Click to launch with bounce animation
         const appPath = shortcut.path;
@@ -186,6 +210,18 @@ async function bootstrap() {
       updateTargetScales();
     });
 
+    // Handle window resize to re-calculate icon sizes
+    window.addEventListener("resize", () => {
+      calculateBaseSize(dockItems.length);
+      updateTargetScales();
+      startAnimation();
+    });
+
+    // Start polling for running processes
+    startProcessPolling();
+
+    // Start auto-hide logic
+    setupAutoHide();
   } catch (err) {
     console.error("Failed to load dock configuration", err);
   }
@@ -209,6 +245,57 @@ function createPlaceholderSVG(name: string): string {
   </svg>`;
 
   return `data:image/svg+xml;base64,${btoa(svg)}`;
+}
+
+async function startProcessPolling() {
+  const poll = async () => {
+    try {
+      const runningPaths: string[] = await invoke("get_running_apps");
+      const runningSet = new Set(runningPaths.map((p) => p.toLowerCase()));
+
+      dockItems.forEach((item) => {
+        const path = item.getAttribute("data-path")?.toLowerCase();
+        if (path && runningSet.has(path)) {
+          item.classList.add("running");
+        } else {
+          item.classList.remove("running");
+        }
+      });
+    } catch (err) {
+      console.error("Process polling failed:", err);
+    }
+  };
+
+  // Initial check
+  poll();
+  // Periodic poll
+  setInterval(poll, 2500);
+}
+
+function setupAutoHide() {
+  if (!isAutoHideEnabled) return;
+
+  window.addEventListener("mouseenter", () => {
+    if (hideDelayTimer) {
+      clearTimeout(hideDelayTimer);
+      hideDelayTimer = null;
+    }
+    if (isHidden) {
+      isHidden = false;
+      invoke("set_dock_hidden", { hidden: false }).catch(console.error);
+    }
+  });
+
+  window.addEventListener("mouseleave", () => {
+    if (!isHidden) {
+      if (hideDelayTimer) clearTimeout(hideDelayTimer);
+      hideDelayTimer = window.setTimeout(() => {
+        isHidden = true;
+        invoke("set_dock_hidden", { hidden: true }).catch(console.error);
+        hideDelayTimer = null;
+      }, 1000);
+    }
+  });
 }
 
 window.addEventListener("DOMContentLoaded", () => {
