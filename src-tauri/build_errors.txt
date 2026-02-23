@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on build directory
+    Checking windows v0.52.0
+    Checking tauri-app v0.1.0 (D:\Codes\OxideDock\tauri-app\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.42s
