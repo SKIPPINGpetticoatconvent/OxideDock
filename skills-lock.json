@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "skills": {
+    "add-feature": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "239c6a239746de08767ce0dd2ff551c5baf1663f5c71e93f5662df1941e025fa"
+    },
+    "document-code": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "e11dbaeaa4e25c7f15371c6ed9c749a197d8d3d292dd67d7a1e09cef0f13c69a"
+    },
+    "fix-bug": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "cccc2fd58d20fc0721fd9b7a53da1f7635aa2a0824ea112748737f2a65e0ff3b"
+    },
+    "front-loading": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "5c4182c64cd48e3c36bb2cc5f56dcb8ad1ce9410afcc6b3c2346dfe86219b41e"
+    },
+    "review-docs": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "5f29c561b4c7434737502bcd3886d93b3890b667c01d0334b68f03ab9e282501"
+    },
+    "search-code": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "24867cc34367853a381656b623a1f7dc81a73233f4b18d11bbd050966bff2530"
+    },
+    "signal-over-noise": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "7d27aef92326477e4b1754f90e429e5f215a6644ec712be2465acdd1e285c030"
+    },
+    "write-code": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "0848ec8091b12f4e7a958db3ed6f793c7a7b4fff064b5ef7b3ff97b0a89e28db"
+    },
+    "write-tests": {
+      "source": "JamieMason/syncpack",
+      "sourceType": "github",
+      "computedHash": "f0b934d8d0d6278234a9d85c0c1ec6d46a21784993bed227170265ae4edd7c7e"
+    }
+  }
+}
