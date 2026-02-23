@@ -15,7 +15,7 @@ use windows::Win32::Graphics::Direct2D::Common::{
 use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, ID2D1DeviceContext,
 };
-use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0};
+use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_11_0;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
 };
@@ -52,7 +52,7 @@ const BAR_CORNER_RADIUS: f32 = 16.0;
 const BAR_BOTTOM_MARGIN: f32 = 8.0;
 const MAX_SCALE: f32 = 1.8;
 const SIGMA: f32 = 90.0;
-const ANIM_DURATION: i64 = 800000; // 80ms in 100ns units
+const ANIM_DURATION: i64 = 800000;
 
 // macOS Light Mode Colors
 const BG_ALPHA: u8 = 180;
@@ -76,18 +76,21 @@ pub struct AppState {
 
 static STATE: OnceLock<Mutex<AppState>> = OnceLock::new();
 
-/// Render a DynamicImage onto a Composition surface and return a SurfaceBrush.
-/// Uses D3D11 → DXGI → Composition interop to create a drawing surface,
-/// then blits the RGBA pixels via D2D.
+/// Render an RgbaImage onto a Composition drawing surface via D2D.
+/// Converts RGBA → premultiplied BGRA, then draws via D2D bitmap.
 fn create_icon_brush(
     compositor: &Compositor,
     comp_graphics_dev: &windows::UI::Composition::CompositionGraphicsDevice,
     img: &RgbaImage,
+    idx: usize,
 ) -> Result<windows::UI::Composition::CompositionSurfaceBrush> {
     unsafe {
         let (w, h) = (img.width(), img.height());
+        println!(
+            "    [brush] Creating {}x{} surface for icon {}...",
+            w, h, idx
+        );
 
-        // Create composition drawing surface
         let surface = comp_graphics_dev.CreateDrawingSurface(
             windows::Foundation::Size {
                 Width: w as f32,
@@ -106,21 +109,23 @@ fn create_icon_brush(
             bottom: h as i32,
         };
 
-        // BeginDraw returns a D2D device context we can draw on
         let d2d_ctx: ID2D1DeviceContext = interop.BeginDraw(Some(&update_rect), &mut offset)?;
+        println!(
+            "    [brush] BeginDraw OK, offset=({},{})",
+            offset.x, offset.y
+        );
 
-        // Convert RGBA → BGRA (D2D expects BGRA) and premultiply alpha
-        let mut bgra_pixels: Vec<u8> = Vec::with_capacity((w * h * 4) as usize);
+        // RGBA → premultiplied BGRA
+        let mut bgra: Vec<u8> = Vec::with_capacity((w * h * 4) as usize);
         for pixel in img.pixels() {
             let [r, g, b, a] = pixel.0;
             let af = a as f32 / 255.0;
-            bgra_pixels.push((b as f32 * af) as u8); // B premultiplied
-            bgra_pixels.push((g as f32 * af) as u8); // G premultiplied
-            bgra_pixels.push((r as f32 * af) as u8); // R premultiplied
-            bgra_pixels.push(a); // A
+            bgra.push((b as f32 * af) as u8);
+            bgra.push((g as f32 * af) as u8);
+            bgra.push((r as f32 * af) as u8);
+            bgra.push(a);
         }
 
-        // Create D2D bitmap from pixel data
         let props = D2D1_BITMAP_PROPERTIES {
             pixelFormat: D2D1_PIXEL_FORMAT {
                 format: DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -134,13 +139,12 @@ fn create_icon_brush(
                 width: w,
                 height: h,
             },
-            Some(bgra_pixels.as_ptr() as *const _),
+            Some(bgra.as_ptr() as *const _),
             w * 4,
             &props,
         )?;
 
-        // Draw bitmap to the surface
-        d2d_ctx.BeginDraw();
+        // Draw directly — BeginDraw from surface interop already started drawing
         d2d_ctx.Clear(None);
         let dest = D2D_RECT_F {
             left: offset.x as f32,
@@ -155,11 +159,11 @@ fn create_icon_brush(
             D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
             None,
         );
-        let _ = d2d_ctx.EndDraw(None, None);
+        // Only call surface interop's EndDraw, NOT d2d_ctx.EndDraw()
         interop.EndDraw()?;
 
-        // Create brush from surface
         let brush = compositor.CreateSurfaceBrushWithSurface(&surface)?;
+        println!("    [brush] Icon {} surface created OK", idx);
         Ok(brush)
     }
 }
@@ -182,20 +186,18 @@ pub fn run(config: Config) -> Result<()> {
         let win_x = 0;
         let win_y = screen_height - win_height;
 
-        // ═══ Extract icons using windows-icons crate ═══
+        // ═══ Extract icons ═══
         println!("Extracting icons...");
         let mut icon_images: Vec<Option<RgbaImage>> = Vec::new();
         for cat in &config.categories {
             for sc in &cat.shortcuts {
-                let icon = crate::icon_extractor::extract_icon(&sc.path);
-                icon_images.push(icon);
+                icon_images.push(crate::icon_extractor::extract_icon(&sc.path));
             }
         }
-        let valid_count = icon_images.iter().filter(|i| i.is_some()).count();
-        println!("Icons: {} total, {} valid", icon_images.len(), valid_count);
+        let valid = icon_images.iter().filter(|i| i.is_some()).count();
+        println!("Icons: {} total, {} valid", icon_images.len(), valid);
 
         let n_icons = icon_images.len();
-
         let state_obj = AppState {
             icon_images,
             target: None,
@@ -211,7 +213,7 @@ pub fn run(config: Config) -> Result<()> {
         };
         let _ = STATE.set(Mutex::new(state_obj));
 
-        // ═══ Window Creation ═══
+        // ═══ Window ═══
         let instance = GetModuleHandleW(None)?;
         let window_class = w!("OxideDockWindow");
         let wc = WNDCLASSEXW {
@@ -224,7 +226,6 @@ pub fn run(config: Config) -> Result<()> {
             ..Default::default()
         };
         RegisterClassExW(&wc);
-
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP,
             window_class,
@@ -240,13 +241,13 @@ pub fn run(config: Config) -> Result<()> {
             None,
         );
 
-        // ═══ Composition Setup ═══
+        // ═══ Composition ═══
         let interop: ICompositorDesktopInterop = compositor.cast()?;
         let target = interop.CreateDesktopWindowTarget(hwnd, true)?;
         let root_visual = compositor.CreateContainerVisual()?;
         target.SetRoot(&root_visual)?;
 
-        // ═══ Background Bar (macOS Light Mode) ═══
+        // Background bar
         let bg_bar_visual = compositor.CreateSpriteVisual()?;
         let bg_brush = compositor.CreateColorBrushWithColor(windows::UI::Color {
             A: BG_ALPHA,
@@ -256,7 +257,7 @@ pub fn run(config: Config) -> Result<()> {
         })?;
         bg_bar_visual.SetBrush(&bg_brush)?;
 
-        // Rounded corners (Win10 1903+)
+        // Rounded corners
         let rounded_rect_opt = compositor.CreateRoundedRectangleGeometry().ok();
         if let Some(ref rr) = rounded_rect_opt {
             let _ = rr.SetCornerRadius(Vector2 {
@@ -270,11 +271,12 @@ pub fn run(config: Config) -> Result<()> {
         }
         root_visual.Children()?.InsertAtBottom(&bg_bar_visual)?;
 
-        // ═══ D3D11/DXGI for Composition Graphics Device ═══
+        // ═══ D3D11 for Composition Graphics ═══
+        // Try hardware first, fall back to WARP (software)
         let mut d3d_device: Option<ID3D11Device> = None;
-        D3D11CreateDevice(
+        let hw_result = D3D11CreateDevice(
             None,
-            D3D_DRIVER_TYPE_HARDWARE,
+            windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE,
             None,
             D3D11_CREATE_DEVICE_BGRA_SUPPORT,
             Some(&[D3D_FEATURE_LEVEL_11_0]),
@@ -282,13 +284,28 @@ pub fn run(config: Config) -> Result<()> {
             Some(&mut d3d_device),
             None,
             None,
-        )?;
+        );
+        if hw_result.is_err() || d3d_device.is_none() {
+            println!("D3D11 Hardware failed, trying WARP...");
+            D3D11CreateDevice(
+                None,
+                windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_WARP,
+                None,
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                Some(&[D3D_FEATURE_LEVEL_11_0]),
+                D3D11_SDK_VERSION,
+                Some(&mut d3d_device),
+                None,
+                None,
+            )?;
+        }
         let d3d_device = d3d_device.unwrap();
         let dxgi_device: IDXGIDevice = d3d_device.cast()?;
         let interop2: ICompositorInterop = compositor.cast()?;
         let comp_graphics_dev = interop2.CreateGraphicsDevice(&dxgi_device)?;
+        println!("D3D11 + CompositionGraphicsDevice created OK");
 
-        // ═══ Layout Calculation ═══
+        // ═══ Layout ═══
         let total_icons_width = n_icons as f32 * ICON_SLOT - ICON_SPACING;
         let bar_total_width = total_icons_width + BAR_PADDING_H * 2.0;
         let bar_x = (win_width as f32 - bar_total_width) / 2.0;
@@ -296,7 +313,6 @@ pub fn run(config: Config) -> Result<()> {
         let icons_start_x = bar_x + BAR_PADDING_H;
         let icon_y = bar_y + BAR_PADDING_V;
 
-        // Set background bar size and position
         let _ = bg_bar_visual.SetSize(Vector2 {
             X: bar_total_width,
             Y: BAR_HEIGHT,
@@ -313,7 +329,7 @@ pub fn run(config: Config) -> Result<()> {
             });
         }
 
-        // ═══ Create Icon Visuals ═══
+        // ═══ Icon Visuals ═══
         let mut current_x = icons_start_x;
         if let Some(mutex) = STATE.get() {
             if let Ok(mut state) = mutex.lock() {
@@ -322,7 +338,6 @@ pub fn run(config: Config) -> Result<()> {
 
                 for (idx, img_opt) in images.into_iter().enumerate() {
                     if let Some(ref img) = img_opt {
-                        println!("  Creating visual {} at x={:.0}", idx, current_x);
                         let icon_visual = compositor.CreateSpriteVisual()?;
                         icon_visual.SetSize(Vector2 {
                             X: ICON_SIZE,
@@ -339,7 +354,6 @@ pub fn run(config: Config) -> Result<()> {
                             Z: 0.0,
                         })?;
 
-                        // Animations
                         let scale_anim = compositor.CreateVector3KeyFrameAnimation()?;
                         let _ = scale_anim.SetDuration(TimeSpan {
                             Duration: ANIM_DURATION,
@@ -349,23 +363,14 @@ pub fn run(config: Config) -> Result<()> {
                             Duration: ANIM_DURATION,
                         });
 
-                        // Render icon image to composition surface
-                        match create_icon_brush(&compositor, &comp_graphics_dev, img) {
+                        // Try to render icon, fall back to colored placeholder
+                        match create_icon_brush(&compositor, &comp_graphics_dev, img, idx) {
                             Ok(brush) => {
                                 icon_visual.SetBrush(&brush)?;
-                                println!(
-                                    "    Icon {} rendered OK ({}x{})",
-                                    idx,
-                                    img.width(),
-                                    img.height()
-                                );
+                                println!("  Icon {} rendered OK", idx);
                             }
                             Err(e) => {
-                                // Fallback: colored placeholder
-                                println!(
-                                    "    Icon {} render failed: {:?}, using placeholder",
-                                    idx, e
-                                );
+                                println!("  Icon {} render failed: {:?}, placeholder", idx, e);
                                 let colors = [
                                     windows::UI::Color {
                                         A: 255,
@@ -392,13 +397,12 @@ pub fn run(config: Config) -> Result<()> {
                                         B: 83,
                                     },
                                 ];
-                                let color = colors[idx % colors.len()];
-                                let brush = compositor.CreateColorBrushWithColor(color)?;
+                                let brush =
+                                    compositor.CreateColorBrushWithColor(colors[idx % 4])?;
                                 icon_visual.SetBrush(&brush)?;
                             }
                         }
                         root_visual.Children()?.InsertAtTop(&icon_visual)?;
-
                         state.icon_visuals.push(icon_visual);
                         state.base_x_positions.push(current_x);
                         state.scale_animations.push(scale_anim);
@@ -409,12 +413,11 @@ pub fn run(config: Config) -> Result<()> {
             }
         }
 
-        // ═══ Hide Windows Taskbar ═══
+        // ═══ Hide Taskbar ═══
         let taskbar_hwnd = FindWindowW(w!("Shell_TrayWnd"), None);
         if taskbar_hwnd != HWND::default() {
             ShowWindow(taskbar_hwnd, SW_HIDE);
         }
-
         ShowWindow(hwnd, SW_SHOW);
         if let Some(mutex) = STATE.get() {
             if let Ok(mut state) = mutex.lock() {
@@ -437,7 +440,7 @@ pub fn run(config: Config) -> Result<()> {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Dock layout calculation
+// Layout calculation
 // ═══════════════════════════════════════════════════════════════
 
 fn calc_dock_layout(
@@ -450,35 +453,29 @@ fn calc_dock_layout(
     let n = base_positions.len();
     let mut scales = vec![1.0f32; n];
     let mut icon_widths = vec![ICON_SIZE; n];
-
     if magnify {
         for i in 0..n {
             let center_x = base_positions[i] + ICON_SIZE / 2.0;
             let dist = (mouse_x - center_x).abs();
-            let m = MAX_SCALE - 1.0;
-            scales[i] = 1.0 + m * (-(dist * dist) / (2.0 * SIGMA * SIGMA)).exp();
+            scales[i] = 1.0 + (MAX_SCALE - 1.0) * (-(dist * dist) / (2.0 * SIGMA * SIGMA)).exp();
             icon_widths[i] = scales[i] * ICON_SIZE;
         }
     }
-
     let total_width: f32 = icon_widths.iter().sum::<f32>() + (n as f32 - 1.0) * ICON_SPACING;
     let bar_width = total_width + BAR_PADDING_H * 2.0;
     let bar_x = (win_width as f32 - bar_width) / 2.0;
     let bar_y = win_height as f32 - BAR_HEIGHT - BAR_BOTTOM_MARGIN;
-
     let mut positions = Vec::with_capacity(n);
-    let mut current_x = bar_x + BAR_PADDING_H;
+    let mut cx = bar_x + BAR_PADDING_H;
     for i in 0..n {
-        let scaled_height = scales[i] * ICON_SIZE;
-        let icon_y = bar_y + BAR_HEIGHT - BAR_PADDING_V - scaled_height;
+        let sy = scales[i] * ICON_SIZE;
         positions.push(Vector3 {
-            X: current_x,
-            Y: icon_y,
+            X: cx,
+            Y: bar_y + BAR_HEIGHT - BAR_PADDING_V - sy,
             Z: 0.0,
         });
-        current_x += icon_widths[i] + ICON_SPACING;
+        cx += icon_widths[i] + ICON_SPACING;
     }
-
     (scales, positions, bar_width, bar_x, bar_y)
 }
 
@@ -494,14 +491,12 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                     dwHoverTime: 0,
                 };
                 let _ = TrackMouseEvent(&mut tme);
-
                 if let Some(mutex) = STATE.get() {
                     if let Ok(state) = mutex.lock() {
                         let n = state.icon_visuals.len();
                         if n == 0 {
                             return LRESULT(0);
                         }
-
                         let (scales, positions, bar_width, bar_x, bar_y) = calc_dock_layout(
                             &state.base_x_positions,
                             mouse_x,
@@ -509,13 +504,11 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                             state.win_height,
                             true,
                         );
-
                         for i in 0..n {
-                            let visual = &state.icon_visuals[i];
-                            let scale_anim = &state.scale_animations[i];
-                            let offset_anim = &state.offset_animations[i];
-
-                            let _ = scale_anim.InsertKeyFrame(
+                            let v = &state.icon_visuals[i];
+                            let sa = &state.scale_animations[i];
+                            let oa = &state.offset_animations[i];
+                            let _ = sa.InsertKeyFrame(
                                 1.0,
                                 Vector3 {
                                     X: scales[i],
@@ -523,11 +516,10 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                                     Z: 1.0,
                                 },
                             );
-                            let _ = visual.StartAnimation(&HSTRING::from("Scale"), scale_anim);
-                            let _ = offset_anim.InsertKeyFrame(1.0, positions[i]);
-                            let _ = visual.StartAnimation(&HSTRING::from("Offset"), offset_anim);
+                            let _ = v.StartAnimation(&HSTRING::from("Scale"), sa);
+                            let _ = oa.InsertKeyFrame(1.0, positions[i]);
+                            let _ = v.StartAnimation(&HSTRING::from("Offset"), oa);
                         }
-
                         if let Some(bg) = &state.bg_bar_visual {
                             let _ = bg.SetSize(Vector2 {
                                 X: bar_width,
@@ -539,14 +531,14 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                                 Z: 0.0,
                             });
                             if let Ok(clip) = bg.Clip() {
-                                let geo_clip: windows::UI::Composition::CompositionGeometricClip =
-                                    clip.cast().unwrap();
-                                if let Ok(geo) = geo_clip.Geometry() {
-                                    let rounded: windows::UI::Composition::CompositionRoundedRectangleGeometry = geo.cast().unwrap();
-                                    let _ = rounded.SetSize(Vector2 {
-                                        X: bar_width,
-                                        Y: BAR_HEIGHT,
-                                    });
+                                if let Ok(gc) = clip
+                                    .cast::<windows::UI::Composition::CompositionGeometricClip>(
+                                ) {
+                                    if let Ok(geo) = gc.Geometry() {
+                                        if let Ok(rr) = geo.cast::<windows::UI::Composition::CompositionRoundedRectangleGeometry>() {
+                                            let _ = rr.SetSize(Vector2 { X: bar_width, Y: BAR_HEIGHT });
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -562,7 +554,6 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                         if n == 0 {
                             return LRESULT(0);
                         }
-
                         let (_, positions, bar_width, bar_x, bar_y) = calc_dock_layout(
                             &state.base_x_positions,
                             0.0,
@@ -570,13 +561,11 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                             state.win_height,
                             false,
                         );
-
                         for i in 0..n {
-                            let visual = &state.icon_visuals[i];
-                            let scale_anim = &state.scale_animations[i];
-                            let offset_anim = &state.offset_animations[i];
-
-                            let _ = scale_anim.InsertKeyFrame(
+                            let v = &state.icon_visuals[i];
+                            let sa = &state.scale_animations[i];
+                            let oa = &state.offset_animations[i];
+                            let _ = sa.InsertKeyFrame(
                                 1.0,
                                 Vector3 {
                                     X: 1.0,
@@ -584,11 +573,10 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                                     Z: 1.0,
                                 },
                             );
-                            let _ = visual.StartAnimation(&HSTRING::from("Scale"), scale_anim);
-                            let _ = offset_anim.InsertKeyFrame(1.0, positions[i]);
-                            let _ = visual.StartAnimation(&HSTRING::from("Offset"), offset_anim);
+                            let _ = v.StartAnimation(&HSTRING::from("Scale"), sa);
+                            let _ = oa.InsertKeyFrame(1.0, positions[i]);
+                            let _ = v.StartAnimation(&HSTRING::from("Offset"), oa);
                         }
-
                         if let Some(bg) = &state.bg_bar_visual {
                             let _ = bg.SetSize(Vector2 {
                                 X: bar_width,
@@ -600,14 +588,14 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                                 Z: 0.0,
                             });
                             if let Ok(clip) = bg.Clip() {
-                                let geo_clip: windows::UI::Composition::CompositionGeometricClip =
-                                    clip.cast().unwrap();
-                                if let Ok(geo) = geo_clip.Geometry() {
-                                    let rounded: windows::UI::Composition::CompositionRoundedRectangleGeometry = geo.cast().unwrap();
-                                    let _ = rounded.SetSize(Vector2 {
-                                        X: bar_width,
-                                        Y: BAR_HEIGHT,
-                                    });
+                                if let Ok(gc) = clip
+                                    .cast::<windows::UI::Composition::CompositionGeometricClip>(
+                                ) {
+                                    if let Ok(geo) = gc.Geometry() {
+                                        if let Ok(rr) = geo.cast::<windows::UI::Composition::CompositionRoundedRectangleGeometry>() {
+                                            let _ = rr.SetSize(Vector2 { X: bar_width, Y: BAR_HEIGHT });
+                                        }
+                                    }
                                 }
                             }
                         }
