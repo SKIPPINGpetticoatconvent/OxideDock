@@ -1,120 +1,182 @@
+/* ═══════════════════════════════════════════════════════════
+   OxideDock — macOS Dock Dark Glass Theme
+   System Acrylic blur applied via Rust (window-vibrancy)
+   ═══════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
+  --dock-icon-size: 64px;
+  --dock-icon-gap: 6px;
+  --dock-padding-h: 10px;
+  --dock-padding-v: 5px;
+  --dock-radius: 20px;
+  --dock-bottom-margin: 4px;
 
-  color: #0f0f0f;
-  background-color: transparent;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  user-select: none; /* No text selection */
-  -webkit-user-drag: none; /* No ghost drag */
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
-body, html {
+html,
+body {
   width: 100vw;
   height: 100vh;
-  overflow: hidden; /* No scrollbars */
+  overflow: hidden;
   background: transparent;
 }
 
-/* Base transparent container spanning the screen width */
+/* ─── Full window container ─── */
 .dock-container {
-  position: absolute;
+  position: fixed;
   bottom: 0;
   left: 0;
-  width: 100vw;
+  right: 0;
   height: 100vh;
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  padding-bottom: 8px; /* Bottom margin */
+  padding-bottom: var(--dock-bottom-margin);
+  pointer-events: none;
 }
 
-/* The actual Dock background (macOS Light Mode) */
+/* ─── The glass dock bar ─── */
 .dock-bar {
+  pointer-events: all;
   display: flex;
   align-items: flex-end;
-  gap: 10px;
-  padding: 6px 12px;
-  
-  /* macOS Light Mode Acrylic */
-  background: rgba(240, 240, 240, 0.7);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  
-  /* Drop shadow */
-  box-shadow: 
-    0 10px 30px rgba(0, 0, 0, 0.1),
-    0 4px 12px rgba(0, 0, 0, 0.08);
+  gap: var(--dock-icon-gap);
+  padding: var(--dock-padding-v) var(--dock-padding-h);
 
-  /* Add a tiny bottom border for 3D effect */
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  
-  transform-origin: bottom center;
+  /* Dark semi-transparent glass (system Acrylic handles the blur behind) */
+  background: rgba(30, 30, 30, 0.38);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+
+  /* Shape */
+  border-radius: var(--dock-radius);
+
+  /* Subtle border: bright top, dark bottom for 3D feel */
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  border-bottom-color: rgba(0, 0, 0, 0.2);
+
+  /* Multi-layer macOS shadow */
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.15),
+    0 2px 4px rgba(0, 0, 0, 0.08),
+    0 8px 16px rgba(0, 0, 0, 0.12),
+    0 16px 48px rgba(0, 0, 0, 0.18);
+
+  min-height: calc(var(--dock-icon-size) + var(--dock-padding-v) * 2);
 }
 
-/* Individual Icon Container */
+/* ─── Category separator ─── */
+.dock-separator {
+  width: 1px;
+  height: calc(var(--dock-icon-size) * 0.55);
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 1px;
+  align-self: center;
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+/* ─── Icon wrapper ─── */
 .dock-item {
   position: relative;
-  width: 48px;
-  height: 48px;
+  width: var(--dock-icon-size);
+  height: var(--dock-icon-size);
   display: flex;
   justify-content: center;
   align-items: center;
-  border-radius: 8px;
-  transform-origin: bottom center;
-  transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
   cursor: pointer;
+  transform-origin: bottom center;
+  flex-shrink: 0;
+  /* Smooth size transitions driven by JS */
+  transition: width 0.12s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.12s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: width, height;
 }
 
-/* The Icon Image */
+/* ─── Icon image ─── */
 .dock-item img {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15));
-  transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+  border-radius: 14px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2)) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.15));
+  transition: filter 0.12s ease;
+  pointer-events: none;
+  image-rendering: -webkit-optimize-contrast;
 }
 
-/* Advanced CSS Hover Magnification approximation 
-   (Will be handled beautifully via JS layout algorithm, but CSS gives a fallback) */
-.dock-item:hover {
-  transform: scale(1.8) translateY(-10px);
-  z-index: 10;
-}
-.dock-item:hover img {
-  filter: drop-shadow(0 8px 16px rgba(0,0,0,0.25));
+/* Enhanced shadow on magnified icons */
+.dock-item.magnified img {
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25)) drop-shadow(0 12px 24px rgba(0, 0, 0, 0.2));
 }
 
-/* Siblings scale logic (fallback) */
-.dock-item:hover + .dock-item,
-.dock-item:has(+ .dock-item:hover) {
-  transform: scale(1.4) translateY(-4px);
-  z-index: 5;
+/* ─── Click bounce ─── */
+.dock-item.bouncing {
+  animation: dock-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.dock-item:hover + .dock-item + .dock-item,
-.dock-item:has(+ .dock-item + .dock-item:hover) {
-  transform: scale(1.1) translateY(-1px);
-  z-index: 2;
+@keyframes dock-bounce {
+  0% {
+    transform: translateY(0);
+  }
+
+  25% {
+    transform: translateY(-24px);
+  }
+
+  45% {
+    transform: translateY(-4px);
+  }
+
+  60% {
+    transform: translateY(-16px);
+  }
+
+  80% {
+    transform: translateY(-2px);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
 }
 
-.dock-item:active img {
-  transform: scale(0.85); /* Click bounce */
-  filter: brightness(0.8);
+/* ─── Tooltip ─── */
+.dock-item::before {
+  content: attr(data-name);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.85);
+  background: rgba(30, 30, 30, 0.88);
+  backdrop-filter: blur(12px);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 100;
+}
+
+.dock-item:hover::before {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
 }
