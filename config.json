@@ -19,6 +19,10 @@
         {
           "name": "Notepad",
           "path": "notepad.exe"
+        },
+        {
+          "name": "Dock Settings",
+          "path": "settings"
         }
       ]
     }

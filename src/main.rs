@@ -13,7 +13,9 @@ fn main() -> Result<(), Error> {
                 cfg.categories.len()
             );
             println!("Starting window message loop...");
-            window::run(cfg)?;
+            if let Err(e) = window::run(cfg) {
+                eprintln!("Fatal error in window::run: {:?}", e);
+            }
         }
         Err(e) => eprintln!("Failed to load config: {}", e),
     }

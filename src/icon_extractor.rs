@@ -1,15 +1,24 @@
-use std::ptr::null_mut;
 use windows::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES;
 use windows::Win32::UI::Controls::IImageList;
 use windows::Win32::UI::Shell::{
     SHFILEINFOW, SHGFI_SYSICONINDEX, SHGetFileInfoW, SHGetImageList, SHIL_JUMBO,
 };
-use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, HICON};
+use windows::Win32::UI::WindowsAndMessaging::{CopyIcon, DestroyIcon, HICON};
 use windows::core::{HSTRING, PCWSTR};
 
 #[derive(Debug)]
 pub struct SystemIcon {
     pub hicon: HICON,
+}
+
+impl Clone for SystemIcon {
+    fn clone(&self) -> Self {
+        unsafe {
+            // CopyIcon returns Result<HICON> in recent windows-rs
+            let hicon = CopyIcon(self.hicon).unwrap_or(HICON::default());
+            SystemIcon { hicon }
+        }
+    }
 }
 
 impl Drop for SystemIcon {
@@ -43,7 +52,6 @@ pub fn extract_icon(path: &str) -> Option<SystemIcon> {
 
         match SHGetImageList::<IImageList>(SHIL_JUMBO as i32) {
             Ok(list) => {
-                // GetIcon returns a Result<HICON> in windows-rs 0.52+
                 if let Ok(hicon) = list.GetIcon(i_icon, 0u32) {
                     return Some(SystemIcon { hicon });
                 }
