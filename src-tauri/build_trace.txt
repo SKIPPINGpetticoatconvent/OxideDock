@@ -1,4 +1,4 @@
-    Checking tauri-app v0.1.0 (D:\Codes\OxideDock\src-tauri)
+   Compiling tauri-app v0.1.0 (D:\Codes\OxideDock\src-tauri)
 warning: unused import: `tauri::Manager`
   --> src\lib.rs:98:17
    |
@@ -8,4 +8,4 @@ warning: unused import: `tauri::Manager`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `tauri-app` (lib) generated 1 warning (run `cargo fix --lib -p tauri-app` to apply 1 suggestion)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.06s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.25s

@@ -15,12 +15,18 @@
       {
         "title": "OxideDock",
         "width": 1920,
-        "height": 120,
+        "height": 90,
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "resizable": false
+        "resizable": false,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ]
       }
     ],
     "security": {

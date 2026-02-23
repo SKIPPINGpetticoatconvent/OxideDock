@@ -11,7 +11,7 @@
   --dock-padding-h: 10px;
   --dock-padding-v: 5px;
   --dock-radius: 20px;
-  --dock-bottom-margin: 4px;
+  --dock-bottom-margin: 0px;
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }

@@ -67,6 +67,49 @@ fn show_taskbar() {
     }
 }
 
+// ─── Positioning and AppBar logic ───
+
+fn update_dock_position(window: &tauri::WebviewWindow) {
+    if let Some(monitor) = window.current_monitor().ok().flatten() {
+        let screen_size = monitor.size();
+        let scale = monitor.scale_factor();
+        let monitor_pos = monitor.position();
+
+        let logical_dock_height = 82; // Optimized Height
+        let phys_dock_h = (logical_dock_height as f64 * scale).round() as i32;
+
+        let phys_bottom_y = monitor_pos.y + screen_size.height as i32 - phys_dock_h;
+        let phys_left_x = monitor_pos.x;
+
+        // Apply window size and position (Physical)
+        let _ = window.set_size(tauri::PhysicalSize::new(
+            screen_size.width,
+            phys_dock_h as u32,
+        ));
+        let _ = window.set_position(tauri::PhysicalPosition::new(phys_left_x, phys_bottom_y));
+
+        println!(
+            "Auto-Adaptive Update: {}x{} at {},{} (Scale: {})",
+            screen_size.width, phys_dock_h, phys_left_x, phys_bottom_y, scale
+        );
+
+        #[cfg(target_os = "windows")]
+        {
+            use tauri::Manager;
+            if let Ok(hwnd_raw) = window.hwnd() {
+                let hwnd = HWND(hwnd_raw.0 as isize);
+                unregister_appbar(hwnd); // Clear previous area
+                register_appbar(
+                    hwnd,
+                    phys_dock_h,
+                    screen_size.width as i32,
+                    screen_size.height as i32,
+                );
+            }
+        }
+    }
+}
+
 // ── AppBar: reserve screen space so maximized windows don't cover the dock ──
 
 fn register_appbar(hwnd: HWND, dock_height: i32, screen_width: i32, screen_height: i32) {
@@ -154,47 +197,32 @@ pub fn run() {
             launch_app
         ])
         .setup(|app| {
-            // Hide the native taskbar
             hide_taskbar();
 
             let main_window = app.get_webview_window("main").unwrap();
 
-            // Get screen dimensions for positioning
-            if let Some(monitor) = main_window.current_monitor().ok().flatten() {
-                let screen = monitor.size();
-                let scale = monitor.scale_factor();
-                let logical_h = (screen.height as f64 / scale) as i32;
-                let logical_w = (screen.width as f64 / scale) as i32;
-                let dock_height = 90;
+            // Initial positioning
+            update_dock_position(&main_window);
 
-                // Set dock window size and position
-                let _ = main_window.set_size(tauri::LogicalSize::new(logical_w, dock_height));
-                let _ = main_window
-                    .set_position(tauri::LogicalPosition::new(0, logical_h - dock_height));
-
-                // Register AppBar to reserve screen bottom space
-                // Use physical pixels for AppBar (Windows API expects physical)
-                let phys_w = screen.width as i32;
-                let phys_h = screen.height as i32;
-                let phys_dock_h = (dock_height as f64 * scale) as i32;
-
-                // Get native HWND from Tauri window
-                #[cfg(target_os = "windows")]
-                {
-                    if let Ok(hwnd_raw) = main_window.hwnd() {
-                        let hwnd = HWND(hwnd_raw.0 as isize);
-                        register_appbar(hwnd, phys_dock_h, phys_w, phys_h);
-
-                        // Store HWND for cleanup on close
-                        main_window.on_window_event(move |event| {
-                            if let WindowEvent::Destroyed = event {
-                                unregister_appbar(hwnd);
-                                show_taskbar();
-                            }
-                        });
-                    }
+            // Listen for changes to handle resolution/scaling automatically
+            let window_ref = main_window.clone();
+            main_window.on_window_event(move |event| match event {
+                WindowEvent::ScaleFactorChanged { .. }
+                | WindowEvent::Moved { .. }
+                | WindowEvent::Resized(..) => {
+                    update_dock_position(&window_ref);
                 }
-            }
+                WindowEvent::Destroyed => {
+                    #[cfg(target_os = "windows")]
+                    {
+                        if let Ok(hwnd_raw) = window_ref.hwnd() {
+                            unregister_appbar(HWND(hwnd_raw.0 as isize));
+                        }
+                    }
+                    show_taskbar();
+                }
+                _ => {}
+            });
 
             Ok(())
         })
